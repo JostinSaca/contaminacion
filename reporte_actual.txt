@@ -1,0 +1,6 @@
+===== REPORTE ACUMULADO DE PREDICCIONES AMBIENTALES =====
+
+--- Bloque de Reporte Actualizado el 23/06/2026 ---
+Zona		Mes	Dia	IC	NA	NO2	SO2	CO2	PM2.5	Alertas y Recomendaciones Medicas
+------------------------------------------------------------------------------------------------------------------------
+Centro		1	31	3,30	3,3	3,3	3,3	3,3	3,3	Calidad del aire aceptable.
