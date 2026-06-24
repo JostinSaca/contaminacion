@@ -15,35 +15,32 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.PageTitle;
 import com.example.GUI.MainView;
+import com.example.GUI.views.MongoService;
 import com.example.Modelos.*;
-import java.io.*;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Route(value = "prediccion", layout = MainView.class)
 @PageTitle("Nueva Predicción | Sistema Ambiental")
 public class PrediccionView extends VerticalLayout {
 
-    private final String FILE_DAT = "zonas.dat";
-    private final String FILE_PREDICCIONES = "predicciones.dat";
-    private Zona[] zonas;
+    @Autowired
+    private MongoService mongoService;
 
+    private Zona[] zonas;
     private ComboBox<String> comboZonas;
     private ComboBox<Integer> comboMeses;
 
-    // Campos de Gases del CLI
     private NumberField txtNa, txtNo2, txtSo2, txtCo2, txtPm25;
-    // Campos Meteorológicos
     private NumberField txtTemp, txtHum, txtVien;
-
     private VerticalLayout panelResultados;
 
     public PrediccionView() {
         setSpacing(true);
         setPadding(true);
 
-        add(new H2("🔮 Ingreso de Nuevos Parámetros Meteorológicos"));
-        add(new Paragraph("Establezca la zona, el mes y las lecturas actuales para calcular el Índice de Contaminación (IC) y registrar las recomendaciones médicas correspondientes."));
+        add(new H2("🔮 Predicción Ambiental con MongoDB"));
+        add(new Paragraph("Establezca los parámetros. Los datos de las zonas se recuperarán en tiempo real desde la nube de MongoDB Atlas."));
 
-        // Selectores de ubicación y tiempo
         comboZonas = new ComboBox<>("Zona");
         comboZonas.setItems("Centro", "Norte", "Sur", "Valle", "Quitumbe");
         comboZonas.setPlaceholder("Seleccione zona...");
@@ -54,7 +51,6 @@ public class PrediccionView extends VerticalLayout {
 
         HorizontalLayout filaUbicacion = new HorizontalLayout(comboZonas, comboMeses);
 
-        // Bloque de captura de Gases (Primera Fila)
         txtNa = new NumberField("NA µg/m³");
         txtNo2 = new NumberField("NO2 µg/m³");
         txtSo2 = new NumberField("SO2 µg/m³");
@@ -63,49 +59,38 @@ public class PrediccionView extends VerticalLayout {
         HorizontalLayout filaGases = new HorizontalLayout(txtNa, txtNo2, txtSo2, txtCo2, txtPm25);
         filaGases.setWidthFull();
 
-        // Bloque de parámetros meteorológicos (Segunda Fila)
         txtTemp = new NumberField("Temperatura °C");
         txtHum = new NumberField("Humedad (%)");
         txtVien = new NumberField("Viento (m/s)");
         HorizontalLayout filaClima = new HorizontalLayout(txtTemp, txtHum, txtVien);
 
-        // Botón de Ejecución
         Button btnCalcular = new Button("Calcular Predicción");
         btnCalcular.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
         panelResultados = new VerticalLayout();
         panelResultados.setVisible(false);
 
-        btnCalcular.addClickListener(event -> ejecutarPrediccionReal());
+        btnCalcular.addClickListener(event -> ejecutarPrediccionRealMongo());
 
         add(filaUbicacion, new H3("Métricas de Gases"), filaGases, new H3("Variables del Clima"), filaClima, btnCalcular, panelResultados);
     }
 
-    private void leerDAT() {
-        File f = new File(FILE_DAT);
-        if (!f.exists() || f.length() == 0) {
-            Notification.show("❌ ERROR: No se han precargado los datos históricos base. Use la pestaña de Precarga primero.", 4000, Notification.Position.MIDDLE)
+    private void ejecutarPrediccionRealMongo() {
+        // LEER DESDE MONGO: Recuperamos las zonas de la nube
+        zonas = mongoService.leerZonas();
+
+        if (zonas == null) {
+            Notification.show("❌ ERROR: No hay datos en MongoDB. Ejecute la Precarga primero.", 4000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_DAT))) {
-            zonas = (Zona[]) ois.readObject();
-        } catch (Exception e) {
-            Notification.show("Error leyendo base binaria: " + e.getMessage(), 3000, Notification.Position.BOTTOM_START);
-        }
-    }
 
-    private void ejecutarPrediccionReal() {
-        leerDAT();
-        if (zonas == null) return;
-
-        // Validación de entradas vacías
         if (comboZonas.getValue() == null || comboMeses.getValue() == null ||
                 txtNa.getValue() == null || txtNo2.getValue() == null || txtSo2.getValue() == null ||
                 txtCo2.getValue() == null || txtPm25.getValue() == null ||
                 txtTemp.getValue() == null || txtHum.getValue() == null || txtVien.getValue() == null) {
 
-            Notification.show("⚠️ Por favor, llene todos los campos numéricos.", 3000, Notification.Position.MIDDLE)
+            Notification.show("Por favor, llene todos los campos numéricos.", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_WARNING);
             return;
         }
@@ -113,11 +98,9 @@ public class PrediccionView extends VerticalLayout {
         panelResultados.removeAll();
         panelResultados.setVisible(true);
 
-        // Mapeo exacto de índices del CLI
         int zIndex = obtenerZonaIndex(comboZonas.getValue());
         int mIndex = comboMeses.getValue() - 1;
 
-        // Recuperación de variables
         double na = txtNa.getValue();
         double no2 = txtNo2.getValue();
         double so2 = txtSo2.getValue();
@@ -127,7 +110,7 @@ public class PrediccionView extends VerticalLayout {
         double hum = txtHum.getValue();
         double vien = txtVien.getValue();
 
-        // === LÓGICA COPIADA EXACTAMENTE DE SISTEMACLI.JAVA ===
+        // Ejecución exacta de tu lógica matemática del CLI
         ResultadoPrediccion r = zonas[zIndex].calcularPrediccion(mIndex);
         r.setZonaIndex(zIndex);
 
@@ -143,34 +126,31 @@ public class PrediccionView extends VerticalLayout {
         if (hum > 70) factor *= 1.05;
         if (vien < 3) factor *= 1.10;
 
-        r.setpNA(r.getpNA() * factor);
-        r.setpNO2(r.getpNO2() * factor);
-        r.setpSO2(r.getpSO2() * factor);
-        r.setpCO2(r.getpCO2() * factor);
+        r.setpNA(r.getpNA() * factor); r.setpNO2(r.getpNO2() * factor);
+        r.setpSO2(r.getpSO2() * factor); r.setpCO2(r.getpCO2() * factor);
         r.setpPM25(r.getpPM25() * factor);
 
         r.setIC((0.10 * r.getpNA()) + (0.30 * r.getpNO2()) + (0.15 * r.getpSO2()) + (0.15 * r.getpCO2()) + (0.30 * r.getpPM25()));
 
-        // === DESPLIEGUE EN LA INTERFAZ DE VAADIN ===
-        panelResultados.add(new H3("--- RESULTADO DE LA PREDICCIÓN AMBIENTAL ---"));
+        panelResultados.add(new H3("--- RESULTADO DE LA PREDICCIÓN (DESDE MONGO) ---"));
         panelResultados.add(new Span("Índice de Contaminación (IC) calculado: " + String.format("%.2f", r.getIC())));
 
         if (zonas[zIndex].evaluarAlerta(r)) {
             VerticalLayout panelAlerta = new VerticalLayout();
             panelAlerta.getStyle().set("background-color", "#fdf2f2").set("border-left", "5px solid #de3545");
-            panelAlerta.add(new H3("⚠️ [ALERTA AMBIENTAL DETECTADA]"));
-
-            // Evaluamos alertas específicas médicas de tu CLI
+            panelAlerta.add(new H3(" [ALERTA AMBIENTAL DETECTADA]"));
             if (r.getpNA() > 100) panelAlerta.add(new Span("-> NA Elevado: Limitar actividades al aire libre."));
             if (r.getpNO2() > 25) panelAlerta.add(new Span("-> NO2 Elevado: Reducir uso de vehículos combustibles."));
             if (r.getpPM25() > 15) panelAlerta.add(new Span("-> PM2.5 Crítico: Usar mascarilla obligatoria."));
-
             panelResultados.add(panelAlerta);
         } else {
-            panelResultados.add(new Paragraph("✅ Calidad del aire dentro de los límites aceptables."));
+            panelResultados.add(new Paragraph(" Calidad del aire dentro de los límites."));
         }
 
-        guardarPrediccionUI(r);
+        // GUARDAR EN MONGO: Registramos la predicción en su respectiva colección de la nube
+        mongoService.guardarPrediccion(r);
+        Notification.show("✓ Predicción sincronizada en MongoDB Atlas.", 2500, Notification.Position.TOP_CENTER)
+                .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
     }
 
     private int obtenerZonaIndex(String nombre) {
@@ -182,20 +162,5 @@ public class PrediccionView extends VerticalLayout {
             case "Quitumbe" -> 4;
             default -> 0;
         };
-    }
-
-    private void guardarPrediccionUI(ResultadoPrediccion r) {
-        File file = new File(FILE_PREDICCIONES);
-        boolean append = file.exists();
-        try (FileOutputStream fos = new FileOutputStream(file, true);
-             ObjectOutputStream oos = append ? new ObjectOutputStream(fos) {
-                 @Override protected void writeStreamHeader() throws IOException { reset(); }
-             } : new ObjectOutputStream(fos)) {
-            oos.writeObject(r);
-            Notification.show("✓ Predicción guardada con éxito en el historial.", 2500, Notification.Position.TOP_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-        } catch (IOException e) {
-            Notification.show("Error guardando registro binario: " + e.getMessage(), 3000, Notification.Position.BOTTOM_START);
-        }
     }
 }

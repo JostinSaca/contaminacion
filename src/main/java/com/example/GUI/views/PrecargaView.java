@@ -9,26 +9,31 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.PageTitle;
 import com.example.GUI.MainView;
+import com.example.GUI.views.MongoService;
 import com.example.Modelos.Zona;
-import java.io.*;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Route(value = "precarga", layout = MainView.class)
 @PageTitle("Precarga de Datos | Sistema Ambiental")
 public class PrecargaView extends VerticalLayout {
 
-    private final String FILE_DAT = "zonas.dat";
+    @Autowired
+    private MongoService mongoService;
+
     private Zona[] zonas;
 
     public PrecargaView() {
-        add(new H2("📥 Precarga de Datos Históricos"));
-        add(new Paragraph("Genera datos aleatorios para todas las zonas."));
+        setSpacing(true);
+        setPadding(true);
+
+        add(new H2("📥 Precarga de Datos Históricos en MongoDB"));
+        add(new Paragraph("Genera y sube datos aleatorios iniciales para todas las zonas directamente a la base de datos NoSQL en la nube."));
 
         inicializarZonas();
 
-        Button btnPrecargar = new Button("Ejecutar Precarga", event -> precargarDatos());
-        Button btnVerificar = new Button("Verificar Archivo", event -> verificarArchivo());
+        Button btnPrecargar = new Button("Ejecutar Precarga en la Nube", event -> precargarDatosMongo());
 
-        add(btnPrecargar, btnVerificar);
+        add(btnPrecargar);
     }
 
     private void inicializarZonas() {
@@ -40,7 +45,7 @@ public class PrecargaView extends VerticalLayout {
         zonas[4] = new Zona("Quitumbe");
     }
 
-    private void precargarDatos() {
+    private void precargarDatosMongo() {
         try {
             for (Zona z : zonas) {
                 for (var mes : z.getMeses()) {
@@ -57,28 +62,14 @@ public class PrecargaView extends VerticalLayout {
                 }
             }
 
-            try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_DAT))) {
-                oos.writeObject(zonas);
-            }
+            // AQUÍ SE CONECTA A MONGO: Guardamos usando el servicio
+            mongoService.guardarZonas(zonas);
 
-            Notification n = new Notification("✓ Datos precargados exitosamente", 3000, Notification.Position.TOP_CENTER);
+            Notification n = new Notification("✓ Datos precargados exitosamente en MongoDB Atlas", 3000, Notification.Position.TOP_CENTER);
             n.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
             n.open();
-        } catch (IOException e) {
-            Notification n = new Notification("✗ Error: " + e.getMessage(), 3000, Notification.Position.TOP_CENTER);
-            n.addThemeVariants(NotificationVariant.LUMO_ERROR);
-            n.open();
-        }
-    }
-
-    private void verificarArchivo() {
-        File f = new File(FILE_DAT);
-        if (f.exists() && f.length() > 0) {
-            Notification n = new Notification("✓ Archivo encontrado (" + f.length() + " bytes)", 3000, Notification.Position.TOP_CENTER);
-            n.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            n.open();
-        } else {
-            Notification n = new Notification("✗ Archivo no encontrado", 3000, Notification.Position.TOP_CENTER);
+        } catch (Exception e) {
+            Notification n = new Notification("✗ Error al conectar con MongoDB: " + e.getMessage(), 4000, Notification.Position.TOP_CENTER);
             n.addThemeVariants(NotificationVariant.LUMO_ERROR);
             n.open();
         }

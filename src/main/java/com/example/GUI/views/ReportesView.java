@@ -3,110 +3,122 @@ package com.example.GUI.views;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Paragraph;
-import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.PageTitle;
 import com.example.GUI.MainView;
+import com.example.GUI.views.MongoService;
 import com.example.Modelos.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.io.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 @Route(value = "reportes", layout = MainView.class)
 @PageTitle("Reportes | Sistema Ambiental")
 public class ReportesView extends VerticalLayout {
 
-    private final String FILE_DAT = "zonas.dat";
-    private final String FILE_PREDICCIONES = "predicciones.dat";
+    @Autowired
+    private MongoService mongoService;
+
+    private Grid<ResultadoPrediccion> tablaPredicciones;
     private Zona[] zonas;
 
     public ReportesView() {
         setSpacing(true);
         setPadding(true);
 
-        add(new H2("📋 Módulo de Generación de Reportes"));
-        add(new Paragraph("Presione el botón para procesar de forma acumulativa todas las predicciones almacenadas y exportar el documento consolidado en formato de texto plano (TXT) para auditorías externas."));
+        add(new H2(" Módulo de Reportes Consolidados (MongoDB)"));
+        add(new Paragraph("Consulte el historial de alertas almacenado en la nube de MongoDB Atlas o expórte el reporte consolidado en un archivo físico de texto plano."));
 
-        Button btnGenerarReporte = new Button("Generar Reporte Actual (.txt)", VaadinIcon.FILE_TEXT.create());
-        btnGenerarReporte.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        tablaPredicciones = new Grid<>(ResultadoPrediccion.class, false);
+        tablaPredicciones.addColumn(r -> obtenerNombreZona(r.getZonaIndex())).setHeader("Zona");
+        tablaPredicciones.addColumn(r -> (r.getMes() + 1)).setHeader("Mes");
+        tablaPredicciones.addColumn(ResultadoPrediccion::getDia).setHeader("Día");
+        tablaPredicciones.addColumn(r -> String.format("%.2f", r.getIC())).setHeader("IC Calculado");
+        tablaPredicciones.addColumn(r -> String.format("%.1f", r.getpPM25())).setHeader("PM2.5");
+        tablaPredicciones.addColumn(r -> String.format("%.1f", r.getpCO2())).setHeader("CO2");
 
-        btnGenerarReporte.addClickListener(event -> ejecutarExportacionReporte());
+        Button btnCargarTabla = new Button("Consultar datos de MongoDB", VaadinIcon.DATABASE.create());
+        btnCargarTabla.addClickListener(e -> actualizarTablaDesdeMongo());
 
-        add(btnGenerarReporte);
+        Button btnGenerarTxt = new Button("Exportar Reporte Acumulado a .TXT", VaadinIcon.FILE_TEXT.create());
+        btnGenerarTxt.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        btnGenerarTxt.addClickListener(event -> ejecutarExportacionReporteTxt());
+
+        add(btnCargarTabla, tablaPredicciones, btnGenerarTxt);
     }
 
-    private void leerDAT() {
-        File f = new File(FILE_DAT);
-        if (!f.exists()) return;
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_DAT))) {
-            zonas = (Zona[]) ois.readObject();
-        } catch (Exception e) {
-            // Error silencioso controlado
+    private String obtenerNombreZona(int index) {
+        return switch (index) {
+            case 0 -> "Centro";
+            case 1 -> "Norte";
+            case 2 -> "Sur";
+            case 3 -> "Valle";
+            case 4 -> "Quitumbe";
+            default -> "Desconocida";
+        };
+    }
+
+    private void actualizarTablaDesdeMongo() {
+        List<ResultadoPrediccion> historial = mongoService.leerPredicciones();
+        if (historial == null || historial.isEmpty()) {
+            Notification.show("No se encontraron predicciones en MongoDB Atlas.", 3000, Notification.Position.MIDDLE)
+                    .addThemeVariants(NotificationVariant.LUMO_WARNING);
+        } else {
+            tablaPredicciones.setItems(historial);
+            Notification.show("✓ Datos sincronizados desde la nube.", 2000, Notification.Position.TOP_CENTER)
+                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
         }
     }
 
-    private void ejecutarExportacionReporte() {
-        leerDAT();
-        File predFile = new File(FILE_PREDICCIONES);
+    private void ejecutarExportacionReporteTxt() {
+        List<ResultadoPrediccion> historial = mongoService.leerPredicciones();
 
-        if (!predFile.exists() || predFile.length() == 0) {
-            Notification.show("❌ ERROR: No se puede generar el reporte porque el registro de predicciones está vacío.", 4000, Notification.Position.MIDDLE)
+        if (historial == null || historial.isEmpty()) {
+            Notification.show("❌ ERROR: No hay datos en MongoDB para exportar. Ejecute una predicción primero.", 4000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
 
-        if (zonas == null) {
-            // Inicialización de emergencia si no se leyó el .dat para evitar NullPointerException con los nombres de las zonas
-            zonas = new Zona[5];
-            zonas[0] = new Zona("Centro"); zonas[1] = new Zona("Norte"); zonas[2] = new Zona("Sur");
-            zonas[3] = new Zona("Valle"); zonas[4] = new Zona("Quitumbe");
-        }
-
         String fechaActual = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         File txtFile = new File("reporte_actual.txt");
-        boolean esNuevo = !txtFile.exists();
 
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_PREDICCIONES));
-             PrintWriter writer = new PrintWriter(new FileWriter(txtFile, true))) {
-
-            if (esNuevo) {
-                writer.println("===== REPORTE ACUMULADO DE PREDICCIONES AMBIENTALES =====");
-            }
-
-            writer.println("\n--- Bloque de Reporte Actualizado el " + fechaActual + " ---");
+        try (PrintWriter writer = new PrintWriter(new FileWriter(txtFile, true))) {
+            writer.println("\n--- Bloque de Reporte Descargado desde MongoDB el " + fechaActual + " ---");
             writer.println("Zona\t\tMes\tDia\tIC\tNA\tNO2\tSO2\tCO2\tPM2.5\tAlertas y Recomendaciones Medicas");
             writer.println("------------------------------------------------------------------------------------------------------------------------");
 
-            while (true) {
-                try {
-                    ResultadoPrediccion r = (ResultadoPrediccion) ois.readObject();
+            for (ResultadoPrediccion r : historial) {
+                StringBuilder alertas = new StringBuilder();
+                if (r.getpNA() > 100) alertas.append("Limitar actividades exteriores. ");
+                if (r.getpNO2() > 25) alertas.append("Reducir uso vehicular. ");
+                if (r.getpPM25() > 15) alertas.append("Uso de mascarilla obligatorio. ");
+                if (alertas.length() == 0) alertas.append("Calidad del aire aceptable.");
 
-                    StringBuilder alertas = new StringBuilder();
-                    if (r.getpNA() > 100) alertas.append("Limitar actividades exteriores. ");
-                    if (r.getpNO2() > 25) alertas.append("Reducir uso vehicular. ");
-                    if (r.getpPM25() > 15) alertas.append("Uso de mascarilla obligatorio. ");
-                    if (alertas.length() == 0) alertas.append("Calidad del aire aceptable.");
-
-                    writer.printf("%s\t\t%d\t%d\t%.2f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%s\n",
-                            zonas[r.getZonaIndex()].getNombre(), (r.getMes() + 1), r.getDia(), r.getIC(),
-                            r.getpNA(), r.getpNO2(), r.getpSO2(), r.getpCO2(), r.getpPM25(), alertas.toString());
-                } catch (EOFException e) {
-                    break; // Fin del stream binario
-                }
+                writer.printf("%s\t\t%d\t%d\t%.2f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%s\n",
+                        obtNombreZona(r.getZonaIndex()), (r.getMes() + 1), r.getDia(), r.getIC(),
+                        r.getpNA(), r.getpNO2(), r.getpSO2(), r.getpCO2(), r.getpPM25(), alertas.toString());
             }
 
-            Notification n = new Notification("✓ Reporte consolidado guardado con éxito en 'reporte_actual.txt'", 4000, Notification.Position.TOP_CENTER);
-            n.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            n.open();
+            Notification.show("✓ Reporte exportado con éxito a 'reporte_actual.txt' usando datos de MongoDB Atlas.", 4000, Notification.Position.TOP_CENTER)
+                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
 
         } catch (Exception e) {
-            Notification.show("Error generando el reporte físico de texto: " + e.getMessage(), 4000, Notification.Position.BOTTOM_START)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
+            Notification.show("Error al escribir el archivo: " + e.getMessage(), 4000, Notification.Position.BOTTOM_START);
         }
+    }
+
+    private String obtNombreZona(int index) {
+        return switch (index) {
+            case 0 -> "Centro"; case 1 -> "Norte"; case 2 -> "Sur";
+            case 3 -> "Valle"; case 4 -> "Quitumbe"; default -> "Centro";
+        };
     }
 }
