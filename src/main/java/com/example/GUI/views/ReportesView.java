@@ -82,15 +82,18 @@ public class ReportesView extends VerticalLayout {
         List<ResultadoPrediccion> historial = mongoService.leerPredicciones();
 
         if (historial == null || historial.isEmpty()) {
-            Notification.show("❌ ERROR: No hay datos en MongoDB para exportar. Ejecute una predicción primero.", 4000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
+            Notification.show(" ERROR: No hay datos en MongoDB para exportar. Ejecute una predicción primero.");
             return;
         }
 
-        String fechaActual = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
-        File txtFile = new File("reporte_actual.txt");
+        // Forzamos la ruta absoluta apuntando directamente al directorio raíz del proyecto
+        String rutaRaiz = System.getProperty("user.dir");
+        File txtFile = new File(rutaRaiz + File.separator + "reporte_actual.txt");
 
-        try (PrintWriter writer = new PrintWriter(new FileWriter(txtFile, true))) {
+        // Intentamos escribir usando un BufferedWriter con autoflush para asegurar que los datos bajen al disco
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(txtFile, true)))) {
+            String fechaActual = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+
             writer.println("\n--- Bloque de Reporte Descargado desde MongoDB el " + fechaActual + " ---");
             writer.println("Zona\t\tMes\tDia\tIC\tNA\tNO2\tSO2\tCO2\tPM2.5\tAlertas y Recomendaciones Medicas");
             writer.println("------------------------------------------------------------------------------------------------------------------------");
@@ -107,11 +110,13 @@ public class ReportesView extends VerticalLayout {
                         r.getpNA(), r.getpNO2(), r.getpSO2(), r.getpCO2(), r.getpPM25(), alertas.toString());
             }
 
-            Notification.show("✓ Reporte exportado con éxito a 'reporte_actual.txt' usando datos de MongoDB Atlas.", 4000, Notification.Position.TOP_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            // Mensaje de éxito explícito mostrando la ruta en consola para depuración
+            System.out.println("[SISTEMA AMBIENTAL] Reporte físico escrito con éxito en: " + txtFile.getAbsolutePath());
+            Notification.show("✓ Reporte exportado a 'reporte_actual.txt' en la raíz del proyecto.");
 
         } catch (Exception e) {
-            Notification.show("Error al escribir el archivo: " + e.getMessage(), 4000, Notification.Position.BOTTOM_START);
+            System.err.println("[SISTEMA AMBIENTAL] Error al escribir el archivo: " + e.getMessage());
+            Notification.show("Error al escribir el archivo: " + e.getMessage());
         }
     }
 
